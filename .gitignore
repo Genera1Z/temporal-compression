@@ -1,0 +1,12 @@
+# 原始与中间数据在集群 scratch 上（路径见 configs/site.yaml），不进 git
+data/raw/*
+!data/raw/.gitkeep
+data/interim/*
+!data/interim/.gitkeep
+logs/*
+!logs/.gitkeep
+slurm-*.out
+__pycache__/
+*.pyc
+.venv/
+wandb/
