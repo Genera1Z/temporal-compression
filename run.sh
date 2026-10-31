@@ -1,11 +1,12 @@
 #!/bin/bash
 # Slurm 入口（执行规范 §7）。用 STAGE 选择阶段：
 #   STAGE=S0 sbatch run.sh            # 或 sbatch run.sh S0
-# 资源按阶段在命令行覆盖，例如：
+# 资源按阶段在命令行覆盖。下方默认是 1 块 GH200；不用 GPU 的阶段改用 CPU 分区：
+#   STAGE=S0 sbatch --partition=small --gres=none --mem=32G run.sh
 #   STAGE=S1 sbatch --time=08:00:00 --mem=120G run.sh
 # 下列默认值参照 sbr-roihu.sh，按“节省着用”调小；account/partition 同 configs/site.yaml。
 #SBATCH --job-name=tcomp
-#SBATCH --account=project_2019964
+#SBATCH --account=project_2020002
 #SBATCH --partition=gpumedium
 #SBATCH --gres=gpu:gh200:1
 #SBATCH --ntasks=1
@@ -22,7 +23,6 @@ if [[ -z "${STAGE}" ]]; then
 fi
 
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$(readlink -f "$0")")}"
-REPO_DIR=$(pwd)
 mkdir -p logs
 
 module load python-pytorch
@@ -102,7 +102,47 @@ if [[ ! -f "${ENTRY}" ]]; then
   echo "❌ ${ENTRY} 尚未实现（该阶段计划需先经用户确认）" >&2; exit 3
 fi
 
+# ---------------------------------------------------------------------
+# 5. 单元测试：不通过就不跑阶段
+# ---------------------------------------------------------------------
+python -m pytest -q tests 2>&1 | tee "${LOG_DIR}/pytest.txt"
+[[ "${PIPESTATUS[0]}" == 0 ]] || { echo "❌ 单元测试失败，见 ${LOG_DIR}/pytest.txt" >&2; exit 1; }
+
+# ---------------------------------------------------------------------
+# 6. 阶段专属的下载步骤（Claude 的云端环境连不上 OSF，下载只能在集群上做）
+# ---------------------------------------------------------------------
+download_osf() {   # $1 = OSF 项目编号；完成后加 .complete 标记并设为只读
+  local pid="$1" dest="${RAW_DIR}/$1" tmp="${RAW_DIR}/.tmp_$1" delay
+  if [[ -f "${dest}/.complete" ]]; then echo "✔ ${pid} 已下载，跳过"; return 0; fi
+  if [[ -e "${dest}" ]]; then
+    echo "❌ ${dest} 已存在但没有 .complete 标记；raw 目录不自动删除，请人工检查" >&2; return 4
+  fi
+  for delay in 0 2 4 8 16; do
+    sleep "${delay}"
+    rm -rf "${RAW_DIR:?}/.tmp_${pid:?}"
+    echo "⬇️  osf -p ${pid} clone（等待 ${delay}s 后尝试）"
+    if osf -p "${pid}" clone "${tmp}"; then
+      touch "${tmp}/.complete"
+      mv "${tmp}" "${dest}"
+      chmod -R a-w "${dest}"
+      return 0
+    fi
+  done
+  echo "❌ ${pid} 下载失败" >&2; return 5
+}
+
+if [[ "${STAGE}" == S0 ]]; then
+  for PID in $(python3 -c "from tcomp.config import load_site; print(' '.join(load_site()['osf_projects']))"); do
+    download_osf "${PID}" 2>&1 | tee -a "${LOG_DIR}/download.txt"
+    [[ "${PIPESTATUS[0]}" == 0 ]] || echo "⚠️  ${PID} 未下载成功，继续审计其余项目" >&2
+  done
+fi
+
+# ---------------------------------------------------------------------
+# 7. 运行阶段入口；失败也先回传结果和日志，最后再以失败状态退出
+# ---------------------------------------------------------------------
 COMMON_ARGS=(--config configs/site.yaml --run-id "${RUN_ID}")
+STATUS=0
 if [[ "${STOCHASTIC}" == 1 ]]; then
   PIDS=()
   for SEED in ${SEEDS}; do
@@ -110,15 +150,15 @@ if [[ "${STOCHASTIC}" == 1 ]]; then
     PIDS+=($!)
     sleep 3   # 同 sbr-roihu.sh：错开启动，避免容器启动死锁
   done
-  FAIL=0
-  for PID in "${PIDS[@]}"; do wait "${PID}" || FAIL=1; done
-  [[ "${FAIL}" == 0 ]] || { echo "❌ 至少一个种子失败，见 ${LOG_DIR}/" >&2; exit 1; }
+  for PID in "${PIDS[@]}"; do wait "${PID}" || STATUS=1; done
+  [[ "${STATUS}" == 0 ]] || echo "❌ 至少一个种子失败，见 ${LOG_DIR}/" >&2
 else
   python "${ENTRY}" "${COMMON_ARGS[@]}" --seed "${SEEDS%% *}" 2>&1 | tee "${LOG_DIR}/main.txt"
+  STATUS=${PIPESTATUS[0]}
 fi
 
 # ---------------------------------------------------------------------
-# 5. 结果回传：把 results/ 和本次日志提交到 results 分支（site.yaml: results.branch）
+# 8. 结果回传：把 results/ 和本次日志提交到 results 分支（site.yaml: results.branch）
 # ---------------------------------------------------------------------
 WT="${TMPDIR:-/tmp}/tcomp_results_${SLURM_JOB_ID:-$$}"
 git fetch origin "${RESULTS_BRANCH}" 2>/dev/null || true
@@ -138,4 +178,9 @@ git -C "${WT}" commit -q -m "results: ${STAGE} @ ${GIT_COMMIT} (run ${RUN_ID}, s
 git -C "${WT}" push -u origin "${RESULTS_BRANCH}"
 git worktree remove --force "${WT}"
 
-echo "🎉 ${STAGE} 完成：${RUN_ID}"
+if [[ "${STATUS}" == 0 ]]; then
+  echo "🎉 ${STAGE} 完成：${RUN_ID}"
+else
+  echo "❌ ${STAGE} 失败（退出码 ${STATUS}），日志已回传：${RUN_ID}" >&2
+fi
+exit "${STATUS}"

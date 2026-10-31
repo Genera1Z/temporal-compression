@@ -10,3 +10,6 @@ __pycache__/
 *.pyc
 .venv/
 wandb/
+# results/ 只在 results 分支上提交（由 run.sh 回传）
+results/*
+!results/.gitkeep

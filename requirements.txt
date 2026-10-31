@@ -1,0 +1,8 @@
+# torch / numpy 由集群模块 python-pytorch 提供（venv 用 --system-site-packages 继承）
+pyyaml
+pandas
+openpyxl
+pyreadstat
+av
+osfclient
+pytest

@@ -7,9 +7,9 @@ github:
 
 slurm:
   # 来源：sbr-roihu.sh（用户已有脚本）
-  account: project_2019964        # [OQ-1] 与数据根目录的项目号 2020002 不同，待确认
+  account: project_2020002        # OQ-1 已确认（2026-10-31）
   partition_gpu: gpumedium
-  partition_cpu: null             # [OQ-2] S0 不需要 GPU，Roihu 的 CPU 分区名待确认
+  partition_cpu: small            # OQ-2 已确认：small 或 medium；无 GPU 的阶段（S0）用它
   qos: null                       # sbr-roihu.sh 未设 QoS
   gpu_type: gh200
   gpus_per_job: 1                 # “按需确定，节省着用”；默认 1，按阶段在 run.sh 中覆盖
@@ -18,13 +18,13 @@ slurm:
 paths:
   data_root: /scratch/project_2020002
   project_root: /scratch/project_2020002/temporal-compression   # 本项目在数据根下的子目录
-  raw: /scratch/project_2020002/temporal-compression/data/raw    # 原始数据实际位置；代码读此路径，仓库内 data/raw 只是占位 [OQ-3]
+  raw: /scratch/project_2020002/temporal-compression/data/raw    # 原始数据实际位置；代码读此路径，仓库内 data/raw 只是占位（OQ-3 已确认）
   interim: /scratch/project_2020002/temporal-compression/data/interim
   hf_home: /scratch/project_2020002/hf_cache                     # Hugging Face 权重缓存，不放主目录
   venv: /scratch/project_2020002/temporal-compression/venv
 
 wandb:
-  entity: temporal-compression    # [OQ-4] “同仓库名”；entity 通常是用户名/团队名，待确认
+  entity: rongzhen-team           # OQ-4 已确认
   project: temporal-compression
 
 seeds: [42, 43, 44]               # 沿用 object-centric-bench 约定

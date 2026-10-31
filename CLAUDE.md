@@ -38,6 +38,9 @@
 | 结果回传方式 | 作业把 `results/` 提交到 `results` 分支 |
 | Hugging Face 访问（V-JEPA 2、Wan、Qwen 权重） | 集群可联网，但下载到数据根目录，而非用户主目录 |
 
+用户补充确认（2026-10-31）：Slurm account `project_2020002`；CPU 分区 `small`/`medium`；WandB entity `rongzhen-team`；集群可推送 `results` 分支。
+
 ## 运行
-- `STAGE=S0 sbatch run.sh`（阶段 S0–S7，见执行规范 §6）。每个阶段一个入口 `scripts/sN_*.py`。
+- `STAGE=S0 sbatch --partition=small --gres=none --mem=32G run.sh`（GPU 阶段直接 `STAGE=S1 sbatch run.sh`）。每个阶段一个入口 `scripts/sN_*.py`；run.sh 先跑 `pytest`，失败则不跑阶段。
+- 本地测试：`python -m pytest -q tests`。
 - 新开会话时先读 `OPEN_QUESTIONS.md` 和最近的 `reports/S*.md`。
